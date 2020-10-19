@@ -27,6 +27,16 @@ type MongoFields struct {
 	TimeStamp    time.Time          `json:"timestamp" bson:"timestamp,omitempty"`
 }
 
+
+
+type Participant struct {
+	Id           int       `json:"id"`
+	Name        string    `json:"name"`
+	Email		string 	  `json:"email"`
+	Rsvp		string    `json:"rsvp"`
+	
+}
+
 var client *mongo.Client
 
 func addMeeting(response http.ResponseWriter,request *http.Request){
@@ -110,12 +120,83 @@ func getMeetingTime(response http.ResponseWriter, request *http.Request) {
 	for _,item:=range meetings{
 		if(item.StartTime.Before(ts) && item.EndTime.After(te)){
 			json.NewEncoder(response).Encode(item)
-			
+			return		
 		}
 	}
 	json.NewEncoder(response).Encode(&MongoFields{})
 }
 
+
+
+func getMeetingsBasedOnParticipant(response http.ResponseWriter, request *http.Request) {
+	
+	response.Header().Set("content-type", "application/json")
+	var meetings []MongoFields
+	var participant_info []Participant	
+	params := mux.Vars(request)
+	
+	
+	collection := client.Database("MeetingsAPI").Collection("Meeting_Details")
+	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	cursor, err := collection.Find(ctx, bson.M{})
+	if err != nil {
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(`{ "message": "` + err.Error() + `" }`))
+		return
+	}
+	defer cursor.Close(ctx)
+	for cursor.Next(ctx) {
+		var meeting MongoFields
+		cursor.Decode(&meeting)
+		meetings = append(meetings, meeting)
+	}
+	if err := cursor.Err(); err != nil {
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(`{ "message": "` + err.Error() + `" }`))
+		return
+	}
+
+
+	collection = client.Database("MeetingsAPI").Collection("Participants_Details")
+	ctx, _ = context.WithTimeout(context.Background(), 30*time.Second)
+	cursor, err = collection.Find(ctx, bson.M{})
+	if err != nil {
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(`{ "message": "` + err.Error() + `" }`))
+		return
+	}
+	
+	defer cursor.Close(ctx)
+	for cursor.Next(ctx) {
+		var each_participant Participant
+		cursor.Decode(&each_participant)
+		participant_info = append(participant_info, each_participant)
+	}
+	if err = cursor.Err(); err != nil {
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(`{ "message": "` + err.Error() + `" }`))
+		return
+	}
+	var pid int
+	for _,item:=range participant_info{
+		if(item.Email == params["id3"] ){
+			pid = item.Id
+		}
+	}
+	fmt.Println(pid)
+	for _,item:=range meetings{
+		for _,each:= range item.Participants{
+			if(each==pid){
+				json.NewEncoder(response).Encode(item)
+				
+			}
+		}
+	}
+
+	//json.NewEncoder(response).Encode(&Participant{})
+	
+	
+}
 
 
 
@@ -130,6 +211,7 @@ func main() {
 	router.HandleFunc("/meetings", addMeeting).Methods("POST")
 	router.HandleFunc("/meetings/{id}", getMeeting).Methods("GET")
 	router.HandleFunc("/meetings?start={id1}&end={id2}",getMeetingTime).Methods("GET") 
+	router.HandleFunc("/participants/{id3}", getMeetingsBasedOnParticipant).Methods("GET")
 	http.ListenAndServe(":12345", router)
 	
 }
